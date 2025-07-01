@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file, render_template_string, jsonify
+from flask import Flask, request, send_file, render_template_string, jsonify, abort
 import yt_dlp
 import os
 import signal
@@ -245,7 +245,7 @@ def index():
                     if (response.ok) {
                         return response.blob();
                     } else {
-                        throw new Error('下载失败');
+                        return response.text().then(text => { throw new Error(text); });
                     }
                 }).then(blob => {
                     const a = document.createElement('a');
@@ -302,6 +302,7 @@ def index():
 
 @app.route('/download', methods=['POST'])
 def download():
+    import yt_dlp
     url = request.form['url']
     quality = request.form.get('quality', 'best')
     output_path = 'downloaded_video.mp4'
@@ -322,13 +323,15 @@ def download():
         'merge_output_format': 'mp4',
         'progress_hooks': [progress_hook]
     }
-
-    global current_ydl_process
-    p = multiprocessing.Process(target=run_ydl, args=(ydl_opts, url))
-    p.start()
-    current_ydl_process = p
-    p.join()
-    return send_file(output_path, as_attachment=True)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = ydl.download([url])
+        if not os.path.exists(output_path):
+            return "下载失败：未生成视频文件", 400
+        return send_file(output_path, as_attachment=True)
+    except Exception as e:
+        download_progress["status"] = "failed"
+        return f"下载失败：{str(e)}", 400
 
 @app.route('/progress')
 def progress():
